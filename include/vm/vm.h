@@ -2,6 +2,7 @@
 #define VM_VM_H
 #include <hash.h>
 #include <stdbool.h>
+#include <stdint.h>
 #include "threads/palloc.h"
 
 enum vm_type {
@@ -48,6 +49,7 @@ struct page {
 
 	/* Your implementation */
 	struct hash_elem hash_elem;
+	bool is_writable;
 
 	/* Per-type data are binded into the union.
 	 * Each function automatically detects the current union */
@@ -88,6 +90,7 @@ struct page_operations {
  * All designs up to you for this. */
 struct supplemental_page_table {
 	struct hash pages;
+	uint64_t *pml4;
 };
 
 #include "threads/thread.h"
@@ -112,7 +115,7 @@ void vm_dealloc_page (struct page *page);
 bool vm_claim_page (void *va);
 enum vm_type page_get_type (struct page *page);
 
-unsigned page_hash (const struct hash_elem *p_, void *aux);
+uint64_t page_hash (const struct hash_elem *p_, void *aux);
 bool page_less (const struct hash_elem *a_,
            const struct hash_elem *b_, void *aux);
 
