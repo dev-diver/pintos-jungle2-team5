@@ -736,7 +736,7 @@ cmp_doner_priority (const struct list_elem *a_, const struct list_elem *b_,
 
 void
 thread_change_by_priority(void){
-	if(!list_empty(&ready_list)){
+	if(!list_empty(&ready_list) && !intr_context()){
 		struct thread *now_thread = thread_current();
 		struct list_elem *ready_node = list_begin(&ready_list);
 		struct thread *first_thread = list_entry(ready_node, struct thread, elem);

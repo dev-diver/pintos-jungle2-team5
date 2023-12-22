@@ -19,7 +19,7 @@ enum vm_type {
 
 	/* Auxillary bit flag marker for store information. You can add more
 	 * markers, until the value is fit in the int. */
-	VM_MARKER_0 = (1 << 3),
+	VM_MARKER_0 = (1 << 3), //스택
 	VM_MARKER_1 = (1 << 4),
 
 	/* DO NOT EXCEED THIS VALUE. */
@@ -49,7 +49,8 @@ struct page {
 
 	/* Your implementation */
 	struct hash_elem hash_elem;
-	bool is_writable;
+	bool writable;
+	bool is_loaded;
 
 	/* Per-type data are binded into the union.
 	 * Each function automatically detects the current union */
@@ -67,6 +68,10 @@ struct page {
 struct frame {
 	void *kva;
 	struct page *page;
+	struct hash_elem hash_elem;
+	bool alloc;
+	bool dirty_bit;
+	bool access_bit;
 };
 
 /* The function table for page operations.
@@ -89,9 +94,16 @@ struct page_operations {
  * We don't want to force you to obey any specific design for this struct.
  * All designs up to you for this. */
 struct supplemental_page_table {
-	struct hash pages;
-	uint64_t *pml4;
+	struct hash *pages;
+	// uint64_t *pml4;
 };
+
+struct frame_table{
+	struct hash *frames;
+	//bitmap
+};
+
+struct frame_table frame_table;
 
 #include "threads/thread.h"
 void supplemental_page_table_init (struct supplemental_page_table *spt);
@@ -115,8 +127,15 @@ void vm_dealloc_page (struct page *page);
 bool vm_claim_page (void *va);
 enum vm_type page_get_type (struct page *page);
 
+void hash_page_destroy(struct hash_elem *e, void *aux);
 uint64_t page_hash (const struct hash_elem *p_, void *aux);
 bool page_less (const struct hash_elem *a_,
            const struct hash_elem *b_, void *aux);
+
+uint64_t frame_hash (const struct hash_elem *p_, void *aux);
+bool frame_less (const struct hash_elem *a_,
+           const struct hash_elem *b_, void *aux);
+
+static struct frame *vm_get_frame (void);	   
 
 #endif  /* VM_VM_H */

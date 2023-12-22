@@ -25,6 +25,7 @@
         "*.inc": "c",
         "fixed_point.h": "c",
         "hash.h": "c",
-        "exception.h": "c"
+        "exception.h": "c",
+        "vm.h": "c"
     }
 }

@@ -27,7 +27,7 @@ static void process_cleanup (void);
 static bool load (const char *file_name, struct intr_frame *if_);
 static void initd (void *f_name);
 static void __do_fork (void *);
-static void argument_stack(char **parse ,int count ,struct intr_frame *_if);
+uintptr_t argument_stack(uintptr_t *if_rsp, char **argv, int argc);
 /* General process initializer for initd and other process. */
 static void
 process_init (void) {
@@ -254,48 +254,43 @@ process_exec (void *f_name) {
 	if (!success){
 		return -1;
 	}
-	
+
 	/* Start switched process. */
 	do_iret (&_if);
 	NOT_REACHED ();
 }
 
-static void argument_stack(char **parse ,int count ,struct intr_frame *_if){
-	void *arg_addr[LOADER_ARGS_LEN / 2 + 1]; //tmp store phys_addr
+uintptr_t argument_stack(uintptr_t *if_rsp, char **argv, int argc){
+	uintptr_t rsp = *if_rsp;
+	int len;
+	void *argp[argc];
+	//char 넣기
+	for(int i = argc-1; i>=0 ; i--){
+		len = strlen(argv[i]) + 1; // null문자 포함
+		rsp-=len;
+		argp[i] = memcpy((char *)(rsp),argv[i],len);	
+	}
+
+	int word = sizeof(char *);
+	//word-align
+	int padding = rsp % word;
+	rsp-=padding;
+	memset((char *)(rsp), 0 , padding); //word-align
+
+	//address
+	rsp-=word;
+	memset((char *)(rsp),0,word);  //argument sentinel
 	
-	//stack -> 선 감소, 후 삽입
-	//string
-	for(int i = count-1; i >= 0; i--){ //argv[0][...] ~ argv[(count-1)][...]
-		int arg_len = strlen(parse[i]) + 1; // within '\0'
-		_if->rsp -= arg_len;
-		memcpy(_if->rsp, parse[i], arg_len);
-		arg_addr[i] = (void *)_if->rsp;
+	for(int i = argc-1; i>=0 ; i--){
+		rsp-=word;
+		memcpy((char *)rsp,&argp[i],word);
 	}
 
-	//word-align (1byte)
-	int zero_padding = _if->rsp % 8;
-	if(zero_padding != 0){
-		_if->rsp -= zero_padding;
-		memset(_if->rsp, 0, zero_padding);
-	}
-	
-	//sentinel '\0'
-	_if->rsp -= 8;
-	memset(_if->rsp, 0, 8);
+	rsp-=word;
+	memset((char *)rsp,0,word);
 
-	//phys_addr(addr size 8)
-	for(int i = count-1; i >= 0; i--){
-		_if->rsp -= 8;
-		memcpy(_if->rsp, &arg_addr[i], 8);
-	}
-
-	//main(argc, argv)
-	_if->R.rdi = count;
-	_if->R.rsi = _if->rsp; //addr_start
-
-	//return addr(fake address)
-	_if->rsp -=8;
-	memset(_if->rsp, 0, 8);
+	*if_rsp = rsp;
+	return rsp+word;
 }
 
 
@@ -580,7 +575,11 @@ load (const char *file_name, struct intr_frame *if_) {
 	if_->rip = ehdr.e_entry;
 
 	//void argument_stack(char **parse ,int count ,struct intr_frame *if) struct intr_frame로 변경
-	argument_stack(argv, argc, if_);
+	uintptr_t rsi = argument_stack(&(if_->rsp), argv, argc);
+	if_->R.rdi=argc;
+	if_->R.rsi=rsi;
+	
+	hex_dump(if_->rsp, if_->rsp, USER_STACK-if_->rsp, true);
 
 	success = true;
 
@@ -739,11 +738,43 @@ install_page (void *upage, void *kpage, bool writable) {
  * If you want to implement the function for only project 2, implement it on the
  * upper block. */
 
+struct seg_arg {
+	struct file *file;
+	off_t ofs;
+	size_t page_read_bytes;
+	size_t page_zero_bytes;
+};
+
 static bool
 lazy_load_segment (struct page *page, void *aux) {
+	
+	/* Add the page to the process's address space. */
+	
 	/* TODO: Load the segment from the file */
 	/* TODO: This called when the first page fault occurs on address VA. */
 	/* TODO: VA is available when calling this function. */
+	
+	// vm_claim_page(page->va);
+	struct seg_arg *args = (struct seg_arg *)aux;
+	struct file *file = args->file;
+	off_t ofs = args->ofs;
+	size_t page_read_bytes = args->page_read_bytes;
+	size_t page_zero_bytes = args->page_zero_bytes;
+
+	file_seek(file, ofs);
+	uint8_t *kpage = page->frame->kva;
+
+	/* Load this page. */
+	if (file_read (file, kpage, page_read_bytes) != (int) page_read_bytes) {
+		palloc_free_page (kpage); //frame 관리
+		vm_dealloc_page(page);//page할당해제?
+		return false;
+	}
+	memset (kpage + page_read_bytes, 0, page_zero_bytes);
+
+	free(aux);
+	
+	return true;
 }
 
 /* Loads a segment starting at offset OFS in FILE at address
@@ -775,7 +806,17 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
 		size_t page_zero_bytes = PGSIZE - page_read_bytes;
 
 		/* TODO: Set up aux to pass information to the lazy_load_segment. */
-		void *aux = NULL;
+		struct seg_arg *args = calloc(1, sizeof(struct seg_arg));
+		if(args == NULL){
+			PANIC("Memory allocation failed\n");
+			return false;
+		}
+
+		args->file = file;
+		args->ofs = ofs;
+		args->page_read_bytes = page_read_bytes;
+		args->page_zero_bytes = page_zero_bytes;
+		void *aux = args;
 		if (!vm_alloc_page_with_initializer (VM_ANON, upage,
 					writable, lazy_load_segment, aux))
 			return false;
@@ -798,7 +839,15 @@ setup_stack (struct intr_frame *if_) {
 	 * TODO: If success, set the rsp accordingly.
 	 * TODO: You should mark the page is stack. */
 	/* TODO: Your code goes here */
-
+	if(!vm_alloc_page(VM_ANON|VM_MARKER_0,stack_bottom,true)){
+		return false;
+	}
+	success = vm_claim_page(stack_bottom);
+	if(success){
+		if_->rsp = (uint64_t)USER_STACK;
+	}else{
+		success = false;
+	}
 	return success;
 }
 #endif /* VM */
