@@ -177,7 +177,7 @@ vm_try_handle_fault (struct intr_frame *f UNUSED, void *addr,
 	struct page *page = NULL;
 
 	/* TODO: Validate the fault */
-	printf("addr: %p not present: %d\n",addr, not_present);
+	// printf("addr: %p not present: %d\n",addr, not_present);
 	/* TODO: Your code goes here */
 	if(!addr){
 		printf("null address\n");
@@ -286,7 +286,6 @@ void hash_page_destroy(struct hash_elem *e, void *aux){
 	//destroy(page);
 	p->frame->page=NULL;
 	vm_dealloc_page(p);
-	free(p);
 	//swap, filebacked 처리
 }
 
