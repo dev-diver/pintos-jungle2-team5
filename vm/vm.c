@@ -98,7 +98,7 @@ struct page *
 spt_find_page (struct supplemental_page_table *spt, void *va) {
 	//struct page *page = NULL;
 	/* TODO: Fill this function. */
-	struct hash *pages = spt->pages;
+	struct hash *pages = &spt->pages;
 	struct page p;
   	struct hash_elem *e;
 	va = pg_round_down(va);
@@ -112,7 +112,7 @@ bool
 spt_insert_page (struct supplemental_page_table *spt,
 		struct page *page) {
 	int succ = false;
-	struct hash *pages = spt->pages;
+	struct hash *pages = &spt->pages;
 	/* TODO: Fill this function. */
 	struct hash_elem *elem = hash_insert (pages, &page->hash_elem);
 	if(!elem){
@@ -124,7 +124,7 @@ spt_insert_page (struct supplemental_page_table *spt,
 void
 spt_remove_page (struct supplemental_page_table *spt, struct page *page) {
 	//frame 해제?
-	struct hash *pages = spt->pages;
+	struct hash *pages = &spt->pages;
 	hash_delete(pages, &page->hash_elem);
 	page->frame->page = NULL;
 	vm_dealloc_page (page);
@@ -235,7 +235,7 @@ vm_try_handle_fault (struct intr_frame *f, void *addr,
 		// printf("write access to r/o page\n");
 		return false;
 	}
-	
+
 	return vm_do_claim_page (page);
 }
 
@@ -280,8 +280,7 @@ vm_do_claim_page (struct page *page) {
 /* Initialize new supplemental page table */
 void
 supplemental_page_table_init (struct supplemental_page_table *spt) {
-	spt->pages = (struct hash *)calloc(1,sizeof(struct hash));
-	hash_init (spt->pages, page_hash, page_less, NULL);
+	hash_init (&spt->pages, page_hash, page_less, NULL);
 	return;
 }
 
@@ -293,14 +292,14 @@ supplemental_page_table_copy (struct supplemental_page_table *dst,
 	struct page *origin;
 	struct page *copy;
 
-	struct hash *h = src->pages;
+	struct hash *h = &src->pages;
 	struct hash_iterator i;
 	hash_first (&i, h);
 	while (hash_next (&i)) {
 		origin = hash_entry (hash_cur (&i), struct page, hash_elem);
 		copy = (struct page*)calloc(1,sizeof(struct page));
 		memcpy(copy, origin, sizeof(struct page));
-		hash_insert(dst->pages, &copy->hash_elem);
+		hash_insert(&dst->pages, &copy->hash_elem);
 	}
 }
 
@@ -309,7 +308,7 @@ void
 supplemental_page_table_kill (struct supplemental_page_table *spt) {
 	/* TODO: Destroy all the supplemental_page_table hold by thread and
 	 * TODO: writeback all the modified contents to the storage. */
-	hash_clear(spt->pages,hash_page_destroy);
+	hash_clear(&spt->pages,hash_page_destroy);
 }
 
 void hash_page_destroy(struct hash_elem *e, void *aux){
