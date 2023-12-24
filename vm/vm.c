@@ -33,6 +33,17 @@ page_get_type (struct page *page) {
 	}
 }
 
+enum vm_type
+page_is_stack (struct page *page) {
+	int ty = IS_STACK (page->operations->type);
+	switch (ty) {
+		case VM_UNINIT:
+			return IS_STACK (page->uninit.type);
+		default:
+			return ty;
+	}
+}
+
 /* Helpers */
 static struct frame *vm_get_victim (void);
 static bool vm_do_claim_page (struct page *page); //spt 넘겨주게 바꾸고싶음.
@@ -90,7 +101,7 @@ spt_find_page (struct supplemental_page_table *spt, void *va) {
 	struct hash *pages = spt->pages;
 	struct page p;
   	struct hash_elem *e;
-
+	va = pg_round_down(va);
   	p.va = va;
   	e = hash_find (pages, &p.hash_elem);
   	return e != NULL ? hash_entry (e, struct page, hash_elem) : NULL;
@@ -117,7 +128,6 @@ spt_remove_page (struct supplemental_page_table *spt, struct page *page) {
 	hash_delete(pages, &page->hash_elem);
 	page->frame->page = NULL;
 	vm_dealloc_page (page);
-	return true;
 }
 
 /* Get the struct frame, that will be evicted. */
@@ -161,7 +171,12 @@ vm_get_frame (void) {
 
 /* Growing the stack. */
 static void
-vm_stack_growth (void *addr UNUSED) {
+vm_stack_growth (void *addr) {
+	void *va = pg_round_down(addr);
+	if(!vm_alloc_page(VM_ANON|VM_MARKER_0, va, true)){
+		printf("cannot grow stack more\n");
+		exit(-1);
+	}
 }
 
 /* Handle the fault on write_protected page */
@@ -171,37 +186,53 @@ vm_handle_wp (struct page *page UNUSED) {
 
 /* Return true on success */
 bool
-vm_try_handle_fault (struct intr_frame *f UNUSED, void *addr,
+vm_try_handle_fault (struct intr_frame *f, void *addr,
 		bool user , bool write , bool not_present) {
 	struct supplemental_page_table *spt = &thread_current ()->spt;
 	struct page *page = NULL;
 
+	void *va = pg_round_down(addr);
+
+	uintptr_t *rsp = f->rsp;
+	if(!user){
+		rsp = thread_current()->intr_rsp;
+	}
+		
 	/* TODO: Validate the fault */
-	// printf("addr: %p not present: %d\n",addr, not_present);
+	// printf("U_STK %p\n", USER_STACK);
+	// printf("n_p: %d, w: %d, u: %d \n", not_present, write, user);
+	// printf("addr: %p va:   %p \n", addr, va);
+	// printf("rsp   %p rsp d %p \n", rsp, pg_round_down(rsp));
 	/* TODO: Your code goes here */
 	if(!addr){
-		printf("null address\n");
+		// printf("null address\n");
 		return false;
 	}
 	if(user && is_kernel_vaddr(addr)){
-		printf("kernel memory access on user\n");
+		// printf("kernel memory access on user\n");
 		return false;
 	}
 	if(!not_present){
 		printf("why? fault\n");
 		return false;
 	}
+	
+	uintptr_t *push_rsp = rsp - 8;
+	//not present
+	if(USER_STACK - (1<<20) <= push_rsp && push_rsp <= addr && addr <= USER_STACK){
+		vm_stack_growth(addr);
+	}else if(USER_STACK - (1<<20) <= rsp && rsp <= addr && addr <= USER_STACK){ //stack growth 경우인 경우, 크기 제한
+		vm_stack_growth(addr);
+	}
 
-	void * va = pg_round_down(addr);
-	page = spt_find_page(spt, va);
-
+	page = spt_find_page(spt, addr);
 	if(!page){
-		printf("cannot find page on supplement page\n");
+		// printf("cannot find page\n");
 		return false;
 	}
 
 	if(write && !page->writable){
-		printf("write access to r/o page\n");
+		// printf("write access to r/o page\n");
 		return false;
 	}
 	

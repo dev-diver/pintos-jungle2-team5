@@ -47,19 +47,11 @@ syscall_init (void) {
 
 /* The main system call interface */
 void
-syscall_handler (struct intr_frame *f UNUSED) {
-	// TODO: Your implementation goes here.
-	/*
-	printf ("\n---------syscall----------\n");
-	printf ("rax : %d\n", f->R.rax);
-	printf ("rdi : %d\n", f->R.rdi);
-	printf ("rsi : %d\n", f->R.rsi);
-	printf ("rdx : %d\n", f->R.rdx);
-	printf ("----------------------------\n");
+syscall_handler (struct intr_frame *f) {
 
-	thread_exit ();
-	*/
-
+#ifdef VM
+	thread_current()->intr_rsp = f->rsp+8;
+#endif
 	switch (f->R.rax)
 	{
 	case SYS_HALT:

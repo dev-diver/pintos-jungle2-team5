@@ -37,6 +37,7 @@ struct page_operations;
 struct thread;
 
 #define VM_TYPE(type) ((type) & 7)
+#define IS_STACK(type) ((type) & VM_MARKER_0)
 
 /* The representation of "page".
  * This is kind of "parent class", which has four "child class"es, which are
@@ -126,6 +127,7 @@ bool vm_alloc_page_with_initializer (enum vm_type type, void *upage,
 void vm_dealloc_page (struct page *page);
 bool vm_claim_page (void *va);
 enum vm_type page_get_type (struct page *page);
+enum vm_type page_is_stack (struct page *page);
 
 void hash_page_destroy(struct hash_elem *e, void *aux);
 uint64_t page_hash (const struct hash_elem *p_, void *aux);
