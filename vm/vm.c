@@ -298,9 +298,29 @@ supplemental_page_table_copy (struct supplemental_page_table *dst,
 	while (hash_next (&i)) {
 		origin = hash_entry (hash_cur (&i), struct page, hash_elem);
 		copy = (struct page*)calloc(1,sizeof(struct page));
+		if(!copy){
+			return false;
+		}
 		memcpy(copy, origin, sizeof(struct page));
 		hash_insert(&dst->pages, &copy->hash_elem);
+		struct page *inserted_page = spt_find_page(src, copy->va);
+		if(copy->frame)
+		{
+			//공유 구현 시 아래 코드, frame의 page를 리스트로
+			// if(!pml4_set_page(thread_current()->pml4, 
+			// 	copy->va, inserted_page->frame->kva, 
+			// 	inserted_page->writable)){
+			// 		return false;
+			// }
+			// frame_add_page()
+			if(!vm_do_claim_page(copy)){
+				return false;
+			}
+			memcpy(copy->frame->kva, origin->frame->kva, PGSIZE);
+			
+		}
 	}
+	return true;
 }
 
 /* Free the resource hold by the supplemental page table */
@@ -313,8 +333,6 @@ supplemental_page_table_kill (struct supplemental_page_table *spt) {
 
 void hash_page_destroy(struct hash_elem *e, void *aux){
 	const struct page *p = hash_entry (e, struct page, hash_elem);
-	//destroy(page);
-	p->frame->page=NULL;
 	vm_dealloc_page(p);
 	//swap, filebacked 처리
 }

@@ -51,7 +51,6 @@ struct page {
 	/* Your implementation */
 	struct hash_elem hash_elem;
 	bool writable;
-	bool is_loaded;
 
 	/* Per-type data are binded into the union.
 	 * Each function automatically detects the current union */
@@ -71,7 +70,6 @@ struct frame {
 	struct page *page;
 	struct hash_elem hash_elem;
 	bool alloc;
-	bool dirty_bit;
 	bool access_bit;
 };
 
@@ -100,11 +98,20 @@ struct supplemental_page_table {
 };
 
 struct frame_table{
-	struct hash *frames;
+	struct hash frames;
 	//bitmap
 };
 
 struct frame_table frame_table;
+
+struct seg_arg {
+	struct file *file;
+	off_t ofs;
+	size_t page_read_bytes;
+	size_t page_zero_bytes;
+	int total_page;
+	int page_no;
+};
 
 #include "threads/thread.h"
 void supplemental_page_table_init (struct supplemental_page_table *spt);

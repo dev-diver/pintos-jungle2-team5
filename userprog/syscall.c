@@ -50,7 +50,7 @@ void
 syscall_handler (struct intr_frame *f) {
 
 #ifdef VM
-	thread_current()->intr_rsp = f->rsp+8;
+	thread_current()->intr_rsp = f->rsp;
 #endif
 	switch (f->R.rax)
 	{
@@ -122,7 +122,15 @@ syscall_handler (struct intr_frame *f) {
 	 	/* return void */
 	 	close(f->R.rdi);
 	 	break;
+
+	case SYS_MMAP:
+		f->R.rax = mmap(f->R.rdi, f->R.rsi, f->R.rdx ,f->R.r10, f->R.r8);
+		break;
 	
+	case SYS_MUNMAP:
+		munmap(f->R.rdi);
+		break;
+
 	default:
 		thread_exit();
 	 	break;
@@ -302,6 +310,19 @@ close (int fd) {
 		thread_current()->running_file = NULL;
 	file_close(curr_file);
 }
+
+void 
+*mmap (void *addr, size_t length, 
+		int writable, int fd, off_t offset){
+	return do_mmap(addr, length, writable, fd, offset);;
+}
+
+void
+munmap(void *addr){
+	do_munmap(addr);
+	return;
+}
+
 /*
 
 //-----------extra-----------------------------

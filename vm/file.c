@@ -1,6 +1,8 @@
 /* file.c: Implementation of memory backed file object (mmaped object). */
 
 #include "vm/vm.h"
+#include "vm/file.h"
+#include "threads/vaddr.h"
 
 static bool file_backed_swap_in (struct page *page, void *kva);
 static bool file_backed_swap_out (struct page *page);
@@ -43,16 +45,130 @@ file_backed_swap_out (struct page *page) {
 /* Destory the file backed page. PAGE will be freed by the caller. */
 static void
 file_backed_destroy (struct page *page) {
-	struct file_page *file_page UNUSED = &page->file;
+	struct file_page *file_page = &page->file;
+	
 }
 
 /* Do the mmap */
 void *
 do_mmap (void *addr, size_t length, int writable,
-		struct file *file, off_t offset) {
+		int fd, off_t ofs) {
+	
+	//에러처리
+	void *va = pg_round_down(addr);
+	if(length == 0 || addr == 0 || va != addr 
+		|| fd == 0 || fd == 1){
+		return NULL;
+	}
+
+	struct file *file = file_reopen(thread_current()->fdt[fd]); //close해도 file 살아있게
+	size_t read_bytes = file_length(file);
+
+	if(read_bytes <= 0 || read_bytes - ofs <= 0){
+		return NULL;
+	}
+	read_bytes-=ofs;
+
+	//가상주소가 잡혀있는 페이지인지 확인
+	// printf("read bytes : %d\n", read_bytes);
+	int pages = (read_bytes / PGSIZE) + 1 ;
+	// printf("page size before alloc : %d\n", pages);
+	for(int i = 0; i < pages; i++){
+		if(spt_find_page(&thread_current()->spt, va + i * PGSIZE) != NULL){
+			return NULL;
+		}
+	}
+
+	int page_no = 0;
+	//페이지들에 맵핑
+	while (read_bytes > 0) {
+		/* Do calculate how to fill this page.
+		 * We will read PAGE_READ_BYTES bytes from FILE
+		 * and zero the final PAGE_ZERO_BYTES bytes. */
+		size_t page_read_bytes = read_bytes < PGSIZE ? read_bytes : PGSIZE;
+		size_t page_zero_bytes = PGSIZE - page_read_bytes;
+
+		/* TODO: Set up aux to pass information to the lazy_load_segment. */
+		struct seg_arg *args = calloc(1, sizeof(struct seg_arg));
+		if(args == NULL){
+			PANIC("Memory allocation failed\n");
+			return false;
+		}
+
+		args->file = file;
+		args->ofs = ofs;
+		args->page_read_bytes = page_read_bytes;
+		args->page_zero_bytes = page_zero_bytes;
+		args->total_page = pages; //munmap을 위해 기록
+		args->page_no = page_no;
+		void *aux = args;
+		if(!vm_alloc_page_with_initializer(VM_FILE, va, writable, lazy_load, aux)){
+			exit(-1);
+		}
+
+		/* Advance. */
+		read_bytes -= page_read_bytes;
+		va += PGSIZE;
+		ofs += page_read_bytes;
+		page_no += 1;
+	}
+	return addr;
 }
 
 /* Do the munmap */
 void
 do_munmap (void *addr) {
+	struct page *page = spt_find_page(&thread_current()->spt, addr);
+	if(!page){
+		printf("not found \n");
+		exit(-1);
+	}
+
+	void *va;
+	struct file_page *file_page = &page->file; 
+	int total_page = file_page->total_page;
+	// printf("total_page_size : %d\n", total_page);
+	for(int i = 0; i < total_page; i++){
+		// printf("destroy page %d\n", i);
+		va = addr + i * PGSIZE;
+		page = spt_find_page(&thread_current()->spt, va);
+		if(!page){
+			printf("cannot destroy page \n");
+			exit(-1);
+		}
+		destroy(page);
+	}
+}
+
+static bool
+lazy_load(struct page *page, void *aux) {
+	
+	struct seg_arg *args = (struct seg_arg *)aux;
+	struct file *file = args->file;
+	off_t ofs = args->ofs;
+	size_t page_read_bytes = args->page_read_bytes;
+	size_t page_zero_bytes = args->page_zero_bytes;
+	int total_page = args->total_page;
+	int page_no = args->page_no;
+
+	file_seek(file, ofs);
+	uint8_t *kpage = page->frame->kva;
+
+	/* Load this page. */
+	if (file_read (file, kpage, page_read_bytes) != (int) page_read_bytes) {
+		palloc_free_page (kpage); //frame 관리
+		vm_dealloc_page(page);//page할당해제?
+		return false;
+	}
+	memset (kpage + page_read_bytes, 0, page_zero_bytes);
+
+	struct file_page *file_page = &page->file;
+	file_page->file = file;
+	file_page->total_page = total_page;
+	file_page->page_no = page_no;
+	file_page->zero_bytes = page_zero_bytes;
+
+	free(aux);
+	
+	return true;
 }
