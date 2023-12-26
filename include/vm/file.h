@@ -8,8 +8,8 @@ enum vm_type;
 
 struct file_page {
 	struct file *file;
+	off_t ofs;
 	int total_page;
-	int page_no;
 	size_t zero_bytes;
 };
 

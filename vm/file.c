@@ -2,6 +2,7 @@
 
 #include "vm/vm.h"
 #include "vm/file.h"
+#include "threads/mmu.h"
 #include "threads/vaddr.h"
 
 static bool file_backed_swap_in (struct page *page, void *kva);
@@ -47,6 +48,17 @@ static void
 file_backed_destroy (struct page *page) {
 	struct file_page *file_page = &page->file;
 	
+	// printf("page_kva %p page->va %p\n", page->frame->kva, page->va);
+	if(pml4_is_dirty(thread_current()->pml4, page->va)){
+		// printf("dirty page\n");
+		off_t ofs = file_page -> ofs;
+		size_t zero_bytes = file_page->zero_bytes;
+		off_t writeback_size = zero_bytes ? PGSIZE - zero_bytes : PGSIZE;
+		file_write_at(file_page->file, page->frame->kva, 
+			writeback_size, ofs);
+		pml4_set_dirty(thread_current()->pml4,page->va,false);
+		pml4_clear_page(thread_current()->pml4,page->va);
+	}
 }
 
 /* Do the mmap */
@@ -79,7 +91,6 @@ do_mmap (void *addr, size_t length, int writable,
 		}
 	}
 
-	int page_no = 0;
 	//페이지들에 맵핑
 	while (read_bytes > 0) {
 		/* Do calculate how to fill this page.
@@ -100,7 +111,6 @@ do_mmap (void *addr, size_t length, int writable,
 		args->page_read_bytes = page_read_bytes;
 		args->page_zero_bytes = page_zero_bytes;
 		args->total_page = pages; //munmap을 위해 기록
-		args->page_no = page_no;
 		void *aux = args;
 		if(!vm_alloc_page_with_initializer(VM_FILE, va, writable, lazy_load, aux)){
 			exit(-1);
@@ -110,7 +120,6 @@ do_mmap (void *addr, size_t length, int writable,
 		read_bytes -= page_read_bytes;
 		va += PGSIZE;
 		ofs += page_read_bytes;
-		page_no += 1;
 	}
 	return addr;
 }
@@ -129,14 +138,14 @@ do_munmap (void *addr) {
 	int total_page = file_page->total_page;
 	// printf("total_page_size : %d\n", total_page);
 	for(int i = 0; i < total_page; i++){
-		// printf("destroy page %d\n", i);
 		va = addr + i * PGSIZE;
+		// printf("destroy page %d va %p\n", i, va);
 		page = spt_find_page(&thread_current()->spt, va);
 		if(!page){
 			printf("cannot destroy page \n");
 			exit(-1);
 		}
-		destroy(page);
+		spt_remove_page(&thread_current()->spt, page);
 	}
 }
 
@@ -149,7 +158,6 @@ lazy_load(struct page *page, void *aux) {
 	size_t page_read_bytes = args->page_read_bytes;
 	size_t page_zero_bytes = args->page_zero_bytes;
 	int total_page = args->total_page;
-	int page_no = args->page_no;
 
 	file_seek(file, ofs);
 	uint8_t *kpage = page->frame->kva;
@@ -165,7 +173,7 @@ lazy_load(struct page *page, void *aux) {
 	struct file_page *file_page = &page->file;
 	file_page->file = file;
 	file_page->total_page = total_page;
-	file_page->page_no = page_no;
+	file_page->ofs = ofs;
 	file_page->zero_bytes = page_zero_bytes;
 
 	free(aux);

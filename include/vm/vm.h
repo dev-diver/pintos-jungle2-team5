@@ -110,7 +110,6 @@ struct seg_arg {
 	size_t page_read_bytes;
 	size_t page_zero_bytes;
 	int total_page;
-	int page_no;
 };
 
 #include "threads/thread.h"

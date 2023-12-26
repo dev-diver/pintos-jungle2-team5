@@ -123,10 +123,9 @@ spt_insert_page (struct supplemental_page_table *spt,
 
 void
 spt_remove_page (struct supplemental_page_table *spt, struct page *page) {
-	//frame 해제?
 	struct hash *pages = &spt->pages;
 	hash_delete(pages, &page->hash_elem);
-	page->frame->page = NULL;
+	page->frame->page = NULL; //공유에서 변경
 	vm_dealloc_page (page);
 }
 
