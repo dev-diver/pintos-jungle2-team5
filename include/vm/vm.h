@@ -39,7 +39,7 @@ struct thread;
 #define VM_TYPE(type) ((type) & 7)
 #define IS_STACK(type) ((type) & VM_MARKER_0)
 #define TOTAL_FRAMES 1 << 10
-#define SECTORS_PER_FRAME 4
+#define SECTORS_PER_FRAME 8
 
 /* The representation of "page".
  * This is kind of "parent class", which has four "child class"es, which are

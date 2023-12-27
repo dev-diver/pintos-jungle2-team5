@@ -61,8 +61,10 @@ file_backed_swap_out (struct page *page) {
 			writeback_size, ofs);
 		pml4_set_dirty(page->pml4,page->va,false);
 	}
-	pml4_clear_page(page->pml4,page->va);
 	bitmap_reset(frame_table.map, page->frame->frame_no);
+	printf("file backed swap_out \n");
+	bitmap_dump(frame_table.map);
+	pml4_clear_page(page->pml4,page->va);
 	page->frame->page = NULL;
 	page->frame = NULL;
 }

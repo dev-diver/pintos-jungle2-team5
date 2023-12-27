@@ -141,14 +141,13 @@ vm_get_victim (void) {
 	//OSTEP p269 clock algorithm
 	struct hash *h = &frame_table.frames;
 	struct hash_iterator *i = &frame_table.clock_hand;
+	struct frame *frame;
 	struct page *page;
 
 	bool use_bit;
-	if(!hash_cur(i)){
-		hash_next(i);
-	}
 	do {
-		page = hash_entry (hash_cur (i), struct page, hash_elem);
+		frame = hash_entry (hash_cur (i), struct frame, hash_elem);
+		page = frame->page;
 		use_bit = pml4_is_accessed(page->pml4, page->va);
 		if(use_bit){
 			pml4_set_accessed(page->pml4, page->va, false);
@@ -159,7 +158,8 @@ vm_get_victim (void) {
 	for(int j = 0; j < 2; j++){
 		hash_first(i, h);
 		while (hash_next (i)) {
-			page = hash_entry (hash_cur (i), struct page, hash_elem);
+			frame = hash_entry (hash_cur (i), struct frame, hash_elem);
+			page = frame->page;
 			use_bit = pml4_is_accessed(page->pml4, page->va);
 			if(use_bit){
 				pml4_set_accessed(page->pml4, page->va, false);
@@ -195,7 +195,6 @@ vm_get_frame (void) {
 	//빈 프레임 없으면 evict
 	if(bitmap_all(frame_table.map,0,frame_table.frame_cnt)){
 		frame = vm_evict_frame();
-		bitmap_reset(frame_table.map,frame->frame_no);
 		return frame;
 	}else{ //기존 프레임 중 빈 프레임 찾기
 		size_t frame_no = bitmap_scan(frame_table.map,0,1,false);
@@ -324,7 +323,10 @@ vm_do_claim_page (struct page *page) {
 	if(!pml4_set_page(page->pml4, page->va, frame->kva, page->writable)){
 		return false;
 	}
+	// printf("frame_no %d\n", frame->frame_no);
 	bitmap_mark(frame_table.map,frame->frame_no);
+	// printf("do claim. frame_table. \n");
+	// bitmap_dump(frame_table.map);
 
 	return swap_in (page, frame->kva);
 }
@@ -409,10 +411,9 @@ page_less (const struct hash_elem *a_,
 void frame_init(){
 	hash_init(&frame_table.frames,frame_hash,frame_less, NULL);
 	frame_table.frame_cnt = TOTAL_FRAMES;
-	hash_first(&frame_table.clock_hand, &frame_table.frames);
 
 	struct frame *frame = NULL;
-	for(int i=0; i < frame_table.frame_cnt; i++){
+	for(int i = 0; i < frame_table.frame_cnt; i++){
 		frame = (struct frame *)calloc(sizeof(struct frame),1);
 		if(!frame){
 			PANIC("cannot malloc frame struct\n");
@@ -427,6 +428,9 @@ void frame_init(){
 			PANIC("frame_no already exist\n");
 		}
 	}
+
+	hash_first(&frame_table.clock_hand, &frame_table.frames);
+	hash_next(&frame_table.clock_hand);
 	frame_table.map = bitmap_create(frame_table.frame_cnt);
 }
 

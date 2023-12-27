@@ -51,9 +51,11 @@ anon_swap_in (struct page *page, void *kva) {
 	disk_sector_t disk_sector_no;
 	for(int i = 0; i < anon_page->swapped_sectors; i++){
 		disk_sector_no = anon_page->disk_sector_no[i];
-		disk_read(swap_disk, disk_sector_no, kva);
+		disk_read(swap_disk, disk_sector_no, kva + i * DISK_SECTOR_SIZE);
 		bitmap_reset(swap_table.map, disk_sector_no);
+		anon_page->disk_sector_no[i] = 0;
 	}
+	anon_page->swapped_sectors = 0;
 }
 
 /* Swap out the page by writing contents to the swap disk. */
@@ -66,6 +68,8 @@ anon_swap_out (struct page *page) {
 	// TODO: page의 유효 데이터에 따라 조정
 	anon_page->swapped_sectors = SECTORS_PER_FRAME; 
 
+	// printf("swap_table \n");
+	// bitmap_dump(swap_table.map);
 	//현재 연속적으로 배치함
 	size_t first_sector_no = bitmap_scan_and_flip(swap_table.map, 0, 
 		anon_page->swapped_sectors, false);
@@ -82,11 +86,11 @@ anon_swap_out (struct page *page) {
 	disk_sector_t disk_sector_no;
 	for(int i = 0; i < anon_page->swapped_sectors; i++){
 		disk_sector_no = anon_page->disk_sector_no[i];
-		disk_write(swap_disk, disk_sector_no, kva);
-		bitmap_mark(swap_table.map,disk_sector_no);
+		disk_write(swap_disk, disk_sector_no, kva + i * DISK_SECTOR_SIZE);
+		//bitmap_mark(swap_table.map,disk_sector_no);
 	}
-	pml4_clear_page(page->pml4, page->va);
 	bitmap_reset(frame_table.map, page->frame->frame_no);
+	pml4_clear_page(page->pml4, page->va);
 	page->frame->page = NULL;
 	page->frame = NULL;
 }
