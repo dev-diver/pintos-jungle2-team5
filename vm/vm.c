@@ -1,5 +1,6 @@
 /* vm.c: Generic interface for virtual memory objects. */
 
+#include "bitmap.h"
 #include "threads/malloc.h"
 #include "threads/mmu.h"
 #include "vm/vm.h"
@@ -9,6 +10,7 @@
  * intialize codes. */
 void
 vm_init (void) {
+	frame_init();
 	vm_anon_init ();
 	vm_file_init ();
 #ifdef EFILESYS  /* For project 4 */
@@ -84,6 +86,7 @@ vm_alloc_page_with_initializer (enum vm_type type, void *upage, bool writable,
 	uninit_new(page, va, init, type, aux, initializer);
 	/* TODO: You should modify the field after calling the uninit_new. */
 	page->writable = writable;
+	page->pml4 = thread_current()->pml4;
 	/* TODO: Insert the page into the spt. */
 	if(!spt_insert_page(spt,page)){
 		goto err;
@@ -133,19 +136,49 @@ spt_remove_page (struct supplemental_page_table *spt, struct page *page) {
 static struct frame *
 vm_get_victim (void) {
 	struct frame *victim = NULL;
-	 /* TODO: The policy for eviction is up to you. */
+	/* TODO: The policy for eviction is up to you. */
+	
+	//OSTEP p269 clock algorithm
+	struct hash *h = &frame_table.frames;
+	struct hash_iterator *i = &frame_table.clock_hand;
+	struct page *page;
 
-	return victim;
+	bool use_bit;
+	if(!hash_cur(i)){
+		hash_next(i);
+	}
+	do {
+		page = hash_entry (hash_cur (i), struct page, hash_elem);
+		use_bit = pml4_is_accessed(page->pml4, page->va);
+		if(use_bit){
+			pml4_set_accessed(page->pml4, page->va, false);
+		}else{
+			return page->frame;
+		}
+	} while (hash_next (i));
+	for(int j = 0; j < 2; j++){
+		hash_first(i, h);
+		while (hash_next (i)) {
+			page = hash_entry (hash_cur (i), struct page, hash_elem);
+			use_bit = pml4_is_accessed(page->pml4, page->va);
+			if(use_bit){
+				pml4_set_accessed(page->pml4, page->va, false);
+			}else{
+				return page->frame;
+			}
+		}
+	}
+	PANIC('cannot find victim with clock algorithm\n');
 }
 
 /* Evict one page and return the corresponding frame.
  * Return NULL on error.*/
 static struct frame *
 vm_evict_frame (void) {
-	struct frame *victim UNUSED = vm_get_victim ();
+	struct frame *victim = vm_get_victim ();
 	/* TODO: swap out the victim and return the evicted frame. */
-
-	return NULL;
+	swap_out(victim->page);
+	return victim;
 }
 
 /* palloc() and get frame. If there is no available page, evict the page
@@ -156,13 +189,31 @@ static struct frame *
 vm_get_frame (void) {
 	struct frame *frame = NULL;
 	/* TODO: Fill this function. */
-	frame = (struct frame *)calloc(sizeof(struct frame),1);
-	void *kva = palloc_get_page(PAL_USER|PAL_ZERO);
-	if(!kva){
-		PANIC('todo'); //swap out 구현;
-	}
-	frame->kva = kva;
+	
+	// bitmap_dump(frame_table.map);
 
+	//빈 프레임 없으면 evict
+	if(bitmap_all(frame_table.map,0,frame_table.frame_cnt)){
+		frame = vm_evict_frame();
+		bitmap_reset(frame_table.map,frame->frame_no);
+		return frame;
+	}else{ //기존 프레임 중 빈 프레임 찾기
+		size_t frame_no = bitmap_scan(frame_table.map,0,1,false);
+		// printf("frame_no : %d\n", frame_no);
+		if(frame_no == BITMAP_ERROR){
+			PANIC('bitmap fulled\n');
+		}
+		struct hash *frames = &frame_table.frames;
+		struct frame f;
+		struct hash_elem *e;
+		f.frame_no = frame_no;
+		e = hash_find(frames, &f.hash_elem);
+		if(!e){
+			PANIC('cannot find frame element\n');
+		}
+  		return hash_entry (e, struct frame, hash_elem);
+	}
+	
 	ASSERT (frame != NULL);
 	ASSERT (frame->page == NULL);
 	return frame;
@@ -181,6 +232,7 @@ vm_stack_growth (void *addr) {
 /* Handle the fault on write_protected page */
 static bool
 vm_handle_wp (struct page *page UNUSED) {
+	return false;
 }
 
 /* Return true on success */
@@ -232,7 +284,7 @@ vm_try_handle_fault (struct intr_frame *f, void *addr,
 
 	if(write && !page->writable){
 		// printf("write access to r/o page\n");
-		return false;
+		return vm_handle_wp(page);
 	}
 
 	return vm_do_claim_page (page);
@@ -253,7 +305,7 @@ vm_claim_page (void *va) {
 	struct supplemental_page_table *spt = &thread_current ()->spt;
 	/* TODO: Fill this function */
 	void *page_va = pg_round_down(va);
-	if((page = spt_find_page(spt, page_va))==NULL){
+	if((page = spt_find_page(spt, page_va)) == NULL){
 		return false;
 	}
 	return vm_do_claim_page (page);
@@ -269,9 +321,10 @@ vm_do_claim_page (struct page *page) {
 	page->frame = frame;
 
 	/* TODO: Insert page table entry to map page's VA to frame's PA. */
-	if(!pml4_set_page(thread_current()->pml4, page->va, frame->kva, page->writable)){
+	if(!pml4_set_page(page->pml4, page->va, frame->kva, page->writable)){
 		return false;
 	}
+	bitmap_mark(frame_table.map,frame->frame_no);
 
 	return swap_in (page, frame->kva);
 }
@@ -301,8 +354,9 @@ supplemental_page_table_copy (struct supplemental_page_table *dst,
 			return false;
 		}
 		memcpy(copy, origin, sizeof(struct page));
+		copy->pml4 = thread_current()->pml4;
 		hash_insert(&dst->pages, &copy->hash_elem);
-		struct page *inserted_page = spt_find_page(src, copy->va);
+		//struct page *inserted_page = spt_find_page(src, copy->va);
 		if(copy->frame)
 		{
 			//공유 구현 시 아래 코드, frame의 page를 리스트로
@@ -352,10 +406,34 @@ page_less (const struct hash_elem *a_,
   return a->va < b->va;
 }
 
+void frame_init(){
+	hash_init(&frame_table.frames,frame_hash,frame_less, NULL);
+	frame_table.frame_cnt = TOTAL_FRAMES;
+	hash_first(&frame_table.clock_hand, &frame_table.frames);
+
+	struct frame *frame = NULL;
+	for(int i=0; i < frame_table.frame_cnt; i++){
+		frame = (struct frame *)calloc(sizeof(struct frame),1);
+		if(!frame){
+			PANIC("cannot malloc frame struct\n");
+		}
+		void *kva = palloc_get_page(PAL_USER|PAL_ZERO);
+		if(!kva){
+			PANIC("cannot make frame\n");
+		}
+		frame->frame_no = i;
+		frame->kva = kva;
+		if(hash_insert(&frame_table.frames,&frame->hash_elem)!=NULL){
+			PANIC("frame_no already exist\n");
+		}
+	}
+	frame_table.map = bitmap_create(frame_table.frame_cnt);
+}
+
 uint64_t
 frame_hash (const struct hash_elem *p_, void *aux UNUSED) {
   const struct frame *p = hash_entry (p_, struct frame, hash_elem);
-  return hash_bytes (&p->kva, sizeof p->kva);
+  return hash_bytes (&p->frame_no, sizeof p->frame_no);
 }
 
 bool
@@ -364,5 +442,5 @@ frame_less (const struct hash_elem *a_,
   const struct frame *a = hash_entry (a_, struct frame, hash_elem);
   const struct frame *b = hash_entry (b_, struct frame, hash_elem);
 
-  return a->kva < b->kva;
+  return a->frame_no < b->frame_no;
 }

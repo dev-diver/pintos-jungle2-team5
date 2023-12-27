@@ -812,6 +812,7 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
 		void *aux = args;
 		if (!vm_alloc_page_with_initializer (VM_ANON, upage,
 					writable, lazy_load_segment, aux)){
+			PANIC("page allocation failed\n");
 			return false;
 		}
 
@@ -840,8 +841,6 @@ setup_stack (struct intr_frame *if_) {
 	success = vm_claim_page(stack_bottom);
 	if(success){
 		if_->rsp = (uint64_t)USER_STACK;
-	}else{
-		success = false;
 	}
 	return success;
 }

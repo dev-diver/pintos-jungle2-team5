@@ -1,5 +1,6 @@
 /* file.c: Implementation of memory backed file object (mmaped object). */
 
+#include "bitmap.h"
 #include "vm/vm.h"
 #include "vm/file.h"
 #include "threads/mmu.h"
@@ -34,30 +35,45 @@ file_backed_initializer (struct page *page, enum vm_type type, void *kva) {
 /* Swap in the page by read contents from the file. */
 static bool
 file_backed_swap_in (struct page *page, void *kva) {
-	struct file_page *file_page UNUSED = &page->file;
+	struct file_page *file_page = &page->file;
+	//frame 밖에서 찾아줌.
+	//pml4_set_page도 밖에서 된 상태
+	//bitmap_mark도 밖에서 됨
+	off_t ofs = file_page -> ofs;
+	size_t zero_bytes = file_page->zero_bytes;
+	off_t read_bytes = zero_bytes ? PGSIZE - zero_bytes : PGSIZE;
+
+	file_read_at(file_page->file, kva, 
+		read_bytes, ofs);
+	memset (kva + read_bytes, 0, zero_bytes);
 }
 
 /* Swap out the page by writeback contents to the file. */
 static bool
 file_backed_swap_out (struct page *page) {
-	struct file_page *file_page UNUSED = &page->file;
-}
-
-/* Destory the file backed page. PAGE will be freed by the caller. */
-static void
-file_backed_destroy (struct page *page) {
 	struct file_page *file_page = &page->file;
-	
-	// printf("page_kva %p page->va %p\n", page->frame->kva, page->va);
-	if(pml4_is_dirty(thread_current()->pml4, page->va)){
+	if(pml4_is_dirty(page->pml4, page->va)){
 		// printf("dirty page\n");
 		off_t ofs = file_page -> ofs;
 		size_t zero_bytes = file_page->zero_bytes;
 		off_t writeback_size = zero_bytes ? PGSIZE - zero_bytes : PGSIZE;
 		file_write_at(file_page->file, page->frame->kva, 
 			writeback_size, ofs);
-		pml4_set_dirty(thread_current()->pml4,page->va,false);
-		pml4_clear_page(thread_current()->pml4,page->va);
+		pml4_set_dirty(page->pml4,page->va,false);
+	}
+	pml4_clear_page(page->pml4,page->va);
+	bitmap_reset(frame_table.map, page->frame->frame_no);
+	page->frame->page = NULL;
+	page->frame = NULL;
+}
+
+/* Destory the file backed page. PAGE will be freed by the caller. */
+static void
+file_backed_destroy (struct page *page) {
+	struct file_page *file_page UNUSED = &page->file;
+	// printf("page_kva %p page->va %p\n", page->frame->kva, page->va);
+	if(page->frame){
+		swap_out(page);
 	}
 }
 

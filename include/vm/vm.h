@@ -38,6 +38,8 @@ struct thread;
 
 #define VM_TYPE(type) ((type) & 7)
 #define IS_STACK(type) ((type) & VM_MARKER_0)
+#define TOTAL_FRAMES 1 << 10
+#define SECTORS_PER_FRAME 4
 
 /* The representation of "page".
  * This is kind of "parent class", which has four "child class"es, which are
@@ -47,6 +49,7 @@ struct page {
 	const struct page_operations *operations;
 	void *va;              /* Address in terms of user space */
 	struct frame *frame;   /* Back reference for frame */
+	uint64_t *pml4;
 
 	/* Your implementation */
 	struct hash_elem hash_elem;
@@ -66,11 +69,10 @@ struct page {
 
 /* The representation of "frame" */
 struct frame {
+	void *frame_no;
 	void *kva;
 	struct page *page;
 	struct hash_elem hash_elem;
-	bool alloc;
-	bool access_bit;
 };
 
 /* The function table for page operations.
@@ -94,15 +96,22 @@ struct page_operations {
  * All designs up to you for this. */
 struct supplemental_page_table {
 	struct hash pages;
-	// uint64_t *pml4;
 };
 
 struct frame_table{
 	struct hash frames;
-	//bitmap
+	struct bitmap *map;
+	int64_t frame_cnt;
+	struct hash_iterator clock_hand;
 };
 
 struct frame_table frame_table;
+
+struct swap_table{
+	struct bitmap *map;
+};
+
+struct swap_table swap_table;
 
 struct seg_arg {
 	struct file *file;
@@ -140,6 +149,8 @@ uint64_t page_hash (const struct hash_elem *p_, void *aux);
 bool page_less (const struct hash_elem *a_,
            const struct hash_elem *b_, void *aux);
 
+
+void frame_init(void);
 uint64_t frame_hash (const struct hash_elem *p_, void *aux);
 bool frame_less (const struct hash_elem *a_,
            const struct hash_elem *b_, void *aux);
