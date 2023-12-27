@@ -388,8 +388,11 @@ supplemental_page_table_kill (struct supplemental_page_table *spt) {
 
 void hash_page_destroy(struct hash_elem *e, void *aux){
 	const struct page *p = hash_entry (e, struct page, hash_elem);
-	vm_dealloc_page(p);
 	//swap, filebacked 처리
+	if(page_get_type(p)==VM_FILE){
+		swap_out(p);
+	}
+	vm_dealloc_page(p);
 }
 
 

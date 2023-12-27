@@ -20,7 +20,7 @@ enum vm_type {
 	/* Auxillary bit flag marker for store information. You can add more
 	 * markers, until the value is fit in the int. */
 	VM_MARKER_0 = (1 << 3), //스택
-	VM_MARKER_1 = (1 << 4),
+	VM_MARKER_1 = (1 << 4), //mmap
 
 	/* DO NOT EXCEED THIS VALUE. */
 	VM_MARKER_END = (1 << 31),
@@ -38,7 +38,9 @@ struct thread;
 
 #define VM_TYPE(type) ((type) & 7)
 #define IS_STACK(type) ((type) & VM_MARKER_0)
-#define TOTAL_FRAMES 1 << 10
+#define IS_MMAP(type) ((type) & VM_MARKER_1)
+
+#define TOTAL_FRAMES 1 << 9
 #define SECTORS_PER_FRAME 8
 
 /* The representation of "page".

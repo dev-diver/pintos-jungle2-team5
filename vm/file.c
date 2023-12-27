@@ -62,8 +62,6 @@ file_backed_swap_out (struct page *page) {
 		pml4_set_dirty(page->pml4,page->va,false);
 	}
 	bitmap_reset(frame_table.map, page->frame->frame_no);
-	printf("file backed swap_out \n");
-	bitmap_dump(frame_table.map);
 	pml4_clear_page(page->pml4,page->va);
 	page->frame->page = NULL;
 	page->frame = NULL;
@@ -130,7 +128,7 @@ do_mmap (void *addr, size_t length, int writable,
 		args->page_zero_bytes = page_zero_bytes;
 		args->total_page = pages; //munmap을 위해 기록
 		void *aux = args;
-		if(!vm_alloc_page_with_initializer(VM_FILE, va, writable, lazy_load, aux)){
+		if(!vm_alloc_page_with_initializer(VM_FILE|VM_MARKER_1, va, writable, lazy_load, aux)){
 			exit(-1);
 		}
 

@@ -68,8 +68,6 @@ anon_swap_out (struct page *page) {
 	// TODO: page의 유효 데이터에 따라 조정
 	anon_page->swapped_sectors = SECTORS_PER_FRAME; 
 
-	// printf("swap_table \n");
-	// bitmap_dump(swap_table.map);
 	//현재 연속적으로 배치함
 	size_t first_sector_no = bitmap_scan_and_flip(swap_table.map, 0, 
 		anon_page->swapped_sectors, false);
